@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:fitsSystemWindows="true"
+    android:background="@android:color/white">
+
+    <!-- 状态栏占位视图 -->
+    <View
+        android:id="@+id/statusBarBackground"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:background="#1976D2" />
+
+    <!-- 工具栏 -->
+    <LinearLayout
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:background="#FFFFFF"
+        android:gravity="center_vertical">
+
+        <!-- 后退按钮 -->
+        <ImageButton
+            android:id="@+id/btnBack"
+            android:layout_width="35dp"
+            android:layout_height="44dp"
+            android:src="@android:drawable/ic_media_previous"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="后退"
+            app:tint="@android:color/black" />
+
+        <!-- 前进按钮 -->
+        <ImageButton
+            android:id="@+id/btnForward"
+            android:layout_width="35dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="8dp"
+            android:src="@android:drawable/ic_media_next"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="前进"
+            app:tint="@android:color/black" />
+
+
+
+        <!-- 地址栏 -->
+        <EditText
+            android:id="@+id/etUrl"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:hint="输入网址"
+            android:inputType="textUri"
+            android:singleLine="true"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:background="@drawable/edittext_border"
+            android:textColor="@android:color/black"
+            android:textColorHint="@android:color/darker_gray" />
+
+        <!-- 刷新按钮 -->
+        <ImageButton
+            android:id="@+id/btnRefresh"
+            android:layout_width="35dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="0dp"
+            android:src="@android:drawable/ic_menu_rotate"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="刷新"
+            app:tint="@android:color/black" />
+
+        <!-- 前往按钮 -->
+        <Button
+            android:id="@+id/btnGo"
+            android:layout_width="60dp"
+            android:layout_height="36dp"
+            android:layout_marginStart="10dp"
+            android:text="前往"
+            android:textColor="#2196F3"
+            android:background="@android:color/white"
+            android:textSize="14sp" />
+
+        <!-- 历史记录按钮 -->
+        <ImageButton
+            android:id="@+id/btnHistory"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="8dp"
+            android:src="@android:drawable/ic_menu_recent_history"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="历史记录"
+            app:tint="@android:color/black" />
+
+    </LinearLayout>
+
+    <!-- 网页显示区域 -->
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- 进度条 -->
+    <ProgressBar
+        android:id="@+id/progressBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:progressTint="#FFFFFF"
+        android:visibility="gone" />
+
+</LinearLayout>
