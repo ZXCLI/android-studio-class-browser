@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/menu_history"
+        android:title="历史记录"
+        android:icon="@android:drawable/ic_menu_recent_history" />
+
+    <item
+        android:id="@+id/menu_cloud_bookmarks"
+        android:title="云书签"
+        android:icon="@android:drawable/ic_menu_upload" />
+
+    <item
+        android:id="@+id/menu_favorites"
+        android:title="收藏夹"
+        android:icon="@android:drawable/btn_star" />
+
+    <item
+        android:id="@+id/menu_add_favorite"
+        android:title="添加到收藏夹"
+        android:icon="@android:drawable/ic_input_add" />
+
+    <item
+        android:id="@+id/menu_add_cloud"
+        android:title="添加到云书签"
+        android:icon="@android:drawable/stat_notify_sync" />
+
+    <item
+        android:id="@+id/menu_sync"
+        android:title="同步云书签"
+        android:icon="@android:drawable/ic_popup_sync" />
+</menu>

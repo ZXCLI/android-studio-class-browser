@@ -20,7 +20,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:padding="12dp"
+        android:padding="5dp"
         android:background="#FFFFFF"
         android:gravity="center_vertical">
 
@@ -44,8 +44,6 @@
             android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="前进"
             app:tint="@android:color/black" />
-
-
 
         <!-- 地址栏 -->
         <EditText
@@ -86,15 +84,15 @@
             android:background="@android:color/white"
             android:textSize="14sp" />
 
-        <!-- 历史记录按钮 -->
+        <!-- 菜单按钮（替换原来的历史记录按钮） -->
         <ImageButton
-            android:id="@+id/btnHistory"
+            android:id="@+id/btnMenu"
             android:layout_width="44dp"
             android:layout_height="44dp"
             android:layout_marginStart="8dp"
-            android:src="@android:drawable/ic_menu_recent_history"
+            android:src="@android:drawable/ic_menu_more"
             android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="历史记录"
+            android:contentDescription="菜单"
             app:tint="@android:color/black" />
 
     </LinearLayout>
@@ -112,7 +110,7 @@
         style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent"
         android:layout_height="3dp"
-        android:progressTint="#FFFFFF"
+        android:progressTint="#2196F3"
         android:visibility="gone" />
 
 </LinearLayout>
