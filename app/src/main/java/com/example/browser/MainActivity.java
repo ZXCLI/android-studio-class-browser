@@ -2,30 +2,23 @@ package com.example.browser;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.TextWatcher;
 import android.util.Log;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.widget.BaseAdapter;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.Filter;
-import android.widget.Filterable;
 import android.widget.ImageButton;
-import android.widget.ListView;
-import android.widget.PopupMenu;
 import android.widget.ProgressBar;
-import android.widget.TextView;
 import android.widget.Toast;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
@@ -35,7 +28,6 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.text.SimpleDateFormat;
@@ -45,8 +37,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.RequestBody;
 import okhttp3.Response;
 
 public class MainActivity extends AppCompatActivity {
@@ -65,9 +59,12 @@ public class MainActivity extends AppCompatActivity {
     private static final String DEFAULT_URL = "https://cn.bing.com";
     private boolean isFullscreen = false;
 
-    // 服务器配置 - 请替换为你的实际服务器地址
-    private static final String SERVER_BASE_URL = "https://your-server.com/api";
-    private static final String SYNC_TOKEN = "your_sync_token"; // 用户同步令牌
+    // 服务器配置 - 修改为你的实际服务器地址
+    private static final String SERVER_BASE_URL = "https://bookmarks.zxcli.top/api";
+
+    // 写死的用户凭证
+    private static final String FIXED_USERNAME = "testuser";
+    private static final String FIXED_PASSWORD = "testpass123";
 
     // 线程池和网络客户端
     private final ExecutorService executorService = Executors.newFixedThreadPool(3);
@@ -77,6 +74,11 @@ public class MainActivity extends AppCompatActivity {
     // 文件存储路径
     private static final String HISTORY_FILE = "browser_history.json";
     private static final String FAVORITES_FILE = "browser_favorites.json";
+
+    // SharedPreferences 键名
+    private static final String PREFS_NAME = "browser_prefs";
+    private static final String KEY_SYNC_TOKEN = "sync_token";
+    private static final String KEY_USER_ID = "user_id";
 
     // 历史记录项类
     private static class HistoryItem {
@@ -147,99 +149,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // 历史记录适配器
-    private class HistoryAdapter extends BaseAdapter implements Filterable {
-        private Context context;
-        private List<HistoryItem> originalList;
-        private List<HistoryItem> filteredList;
-
-        public HistoryAdapter(Context context, List<HistoryItem> list) {
-            this.context = context;
-            this.originalList = new ArrayList<>(list);
-            this.filteredList = new ArrayList<>(list);
-        }
-
-        @Override
-        public int getCount() {
-            return filteredList.size();
-        }
-
-        @Override
-        public HistoryItem getItem(int position) {
-            return filteredList.get(position);
-        }
-
-        @Override
-        public long getItemId(int position) {
-            return position;
-        }
-
-        @Override
-        public View getView(int position, View convertView, ViewGroup parent) {
-            ViewHolder holder;
-            if (convertView == null) {
-                convertView = getLayoutInflater().inflate(R.layout.item_history, parent, false);
-                holder = new ViewHolder();
-                holder.tvTitle = convertView.findViewById(R.id.tvTitle);
-                holder.tvUrl = convertView.findViewById(R.id.tvUrl);
-                holder.tvTime = convertView.findViewById(R.id.tvTime);
-                convertView.setTag(holder);
-            } else {
-                holder = (ViewHolder) convertView.getTag();
-            }
-
-            HistoryItem item = getItem(position);
-            holder.tvTitle.setText(item.title);
-            holder.tvUrl.setText(item.url);
-
-            // 格式化时间
-            String time = formatTime(item.timestamp);
-            holder.tvTime.setText(time);
-
-            return convertView;
-        }
-
-        @Override
-        public Filter getFilter() {
-            return new Filter() {
-                @Override
-                protected FilterResults performFiltering(CharSequence constraint) {
-                    FilterResults results = new FilterResults();
-                    List<HistoryItem> filtered = new ArrayList<>();
-
-                    if (constraint == null || constraint.length() == 0) {
-                        filtered.addAll(originalList);
-                    } else {
-                        String filterPattern = constraint.toString().toLowerCase().trim();
-                        for (HistoryItem item : originalList) {
-                            if (item.title.toLowerCase().contains(filterPattern) ||
-                                    item.url.toLowerCase().contains(filterPattern)) {
-                                filtered.add(item);
-                            }
-                        }
-                    }
-
-                    results.values = filtered;
-                    results.count = filtered.size();
-                    return results;
-                }
-
-                @Override
-                @SuppressWarnings("unchecked")
-                protected void publishResults(CharSequence constraint, FilterResults results) {
-                    filteredList = (List<HistoryItem>) results.values;
-                    notifyDataSetChanged();
-                }
-            };
-        }
-
-        private class ViewHolder {
-            TextView tvTitle;
-            TextView tvUrl;
-            TextView tvTime;
-        }
-    }
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -255,6 +164,9 @@ public class MainActivity extends AppCompatActivity {
         setupClickListeners();
         initData();
 
+        // 自动登录并同步云书签
+        autoLoginAndSync();
+
         // 加载默认网页
         loadUrl(DEFAULT_URL);
     }
@@ -265,8 +177,6 @@ public class MainActivity extends AppCompatActivity {
         if (webView != null) {
             webView.onResume();
         }
-        // 恢复时同步云书签
-        syncCloudBookmarks();
     }
 
     @Override
@@ -280,16 +190,378 @@ public class MainActivity extends AppCompatActivity {
         saveFavoritesToFile();
     }
 
+    // ========================= 用户认证和令牌管理 =========================
+
+    /**
+     * 自动登录并同步云书签
+     */
+    private void autoLoginAndSync() {
+        executorService.execute(() -> {
+            try {
+                String savedToken = getSyncToken();
+
+                if (savedToken == null || savedToken.isEmpty()) {
+                    // 没有保存的token，进行登录
+                    boolean loginSuccess = loginToServer();
+                    if (loginSuccess) {
+                        // 登录成功后同步云书签
+                        syncCloudBookmarks();
+                    }
+                } else {
+                    // 有保存的token，直接同步云书签
+                    syncCloudBookmarks();
+                }
+            } catch (Exception e) {
+                Log.e("Browser", "自动登录失败", e);
+            }
+        });
+    }
+
+    /**
+     * 登录到服务器
+     */
+    private boolean loginToServer() {
+        try {
+            JSONObject requestBody = new JSONObject();
+            requestBody.put("username", FIXED_USERNAME);
+            requestBody.put("password", FIXED_PASSWORD);
+
+            Request request = new Request.Builder()
+                    .url(SERVER_BASE_URL + "/auth/login")
+                    .post(RequestBody.create(
+                            MediaType.parse("application/json"),
+                            requestBody.toString()
+                    ))
+                    .build();
+
+            try (Response response = httpClient.newCall(request).execute()) {
+                if (!response.isSuccessful()) {
+                    Log.e("Browser", "登录失败，HTTP状态码: " + response.code());
+                    return false;
+                }
+
+                String responseBody = response.body().string();
+                JSONObject jsonResponse = new JSONObject(responseBody);
+
+                if (jsonResponse.getInt("code") != 200) {
+                    Log.e("Browser", "登录API错误: " + jsonResponse.getString("message"));
+                    return false;
+                }
+
+                JSONObject data = jsonResponse.getJSONObject("data");
+                String syncToken = data.getString("syncToken");
+                String userId = data.getString("userId");
+
+                // 保存token和用户ID
+                saveSyncToken(syncToken);
+                saveUserId(userId);
+
+                mainHandler.post(() -> {
+                    Toast.makeText(MainActivity.this, "云书签登录成功", Toast.LENGTH_SHORT).show();
+                });
+
+                return true;
+            }
+        } catch (Exception e) {
+            Log.e("Browser", "登录异常", e);
+            mainHandler.post(() -> {
+                Toast.makeText(MainActivity.this, "云书签登录失败", Toast.LENGTH_SHORT).show();
+            });
+            return false;
+        }
+    }
+
+    /**
+     * 保存同步令牌
+     */
+    private void saveSyncToken(String token) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putString(KEY_SYNC_TOKEN, token).apply();
+    }
+
+    /**
+     * 获取同步令牌
+     */
+    private String getSyncToken() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getString(KEY_SYNC_TOKEN, "");
+    }
+
+    /**
+     * 保存用户ID
+     */
+    private void saveUserId(String userId) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putString(KEY_USER_ID, userId).apply();
+    }
+
+    /**
+     * 获取用户ID
+     */
+    private String getUserId() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getString(KEY_USER_ID, "");
+    }
+
+    // ========================= 云书签同步功能 =========================
+
+    /**
+     * 同步云书签
+     */
+    public void syncCloudBookmarks() {
+        executorService.execute(() -> {
+            try {
+                String token = getSyncToken();
+                if (token.isEmpty()) {
+                    Log.e("Browser", "同步失败：没有有效的token");
+                    return;
+                }
+
+                // 从服务器获取书签
+                List<Bookmark> serverBookmarks = fetchBookmarksFromServer(token);
+
+                mainHandler.post(() -> {
+                    cloudBookmarks.clear();
+                    cloudBookmarks.addAll(serverBookmarks);
+                    Toast.makeText(MainActivity.this,
+                            "已同步 " + cloudBookmarks.size() + " 个云书签",
+                            Toast.LENGTH_SHORT).show();
+                    Log.d("Browser", "Synced " + cloudBookmarks.size() + " cloud bookmarks");
+                });
+
+            } catch (Exception e) {
+                Log.e("Browser", "同步失败", e);
+                mainHandler.post(() -> {
+                    Toast.makeText(MainActivity.this,
+                            "同步失败: " + e.getMessage(),
+                            Toast.LENGTH_SHORT).show();
+                });
+            }
+        });
+    }
+
+    /**
+     * 从服务器获取书签
+     */
+    private List<Bookmark> fetchBookmarksFromServer(String token) throws Exception {
+        String url = SERVER_BASE_URL + "/bookmarks?token=" + token;
+
+        Request request = new Request.Builder()
+                .url(url)
+                .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new Exception("服务器错误: " + response.code());
+            }
+
+            String responseBody = response.body().string();
+            JSONObject jsonResponse = new JSONObject(responseBody);
+
+            if (jsonResponse.getInt("code") != 200) {
+                throw new Exception("API错误: " + jsonResponse.getString("message"));
+            }
+
+            JSONArray bookmarksArray = jsonResponse.getJSONArray("data");
+            List<Bookmark> bookmarks = new ArrayList<>();
+
+            for (int i = 0; i < bookmarksArray.length(); i++) {
+                JSONObject bookmarkJson = bookmarksArray.getJSONObject(i);
+                Bookmark bookmark = new Bookmark(
+                        bookmarkJson.getString("id"),
+                        bookmarkJson.getString("title"),
+                        bookmarkJson.getString("url"),
+                        bookmarkJson.getLong("createdAt")
+                );
+                bookmarks.add(bookmark);
+            }
+
+            return bookmarks;
+        }
+    }
+
+    /**
+     * 添加当前网页到云书签
+     */
+    /**
+     * 添加当前网页到云书签
+     */
+    private void addCurrentToCloudBookmarks() {
+        // 在主线程中获取WebView数据
+        String currentUrl = webView.getUrl();
+        String currentTitle = webView.getTitle();
+        String token = getSyncToken();
+
+        if (currentUrl == null || currentUrl.isEmpty()) {
+            Toast.makeText(MainActivity.this, "当前没有加载网页", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (token.isEmpty()) {
+            Toast.makeText(MainActivity.this, "请先登录云书签", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String title = currentTitle != null ? currentTitle : "未命名网页";
+
+        // 现在在后台线程中执行网络请求
+        executorService.execute(() -> {
+            try {
+                // 修复：移除JSON body中的token字段
+                JSONObject requestBody = new JSONObject();
+                requestBody.put("title", title);
+                requestBody.put("url", currentUrl);
+
+                Request request = new Request.Builder()
+                        .url(SERVER_BASE_URL + "/bookmarks?token=" + token)
+                        .post(RequestBody.create(
+                                MediaType.parse("application/json"),
+                                requestBody.toString()
+                        ))
+                        .build();
+
+                try (Response response = httpClient.newCall(request).execute()) {
+                    String responseBody = response.body().string();
+                    Log.d("Browser", "添加云书签响应: " + responseBody);
+
+                    if (response.isSuccessful()) {
+                        JSONObject jsonResponse = new JSONObject(responseBody);
+                        if (jsonResponse.getInt("code") == 200) {
+                            mainHandler.post(() -> {
+                                Toast.makeText(MainActivity.this, "已添加到云书签", Toast.LENGTH_SHORT).show();
+                                // 添加成功后同步一次，更新本地列表
+                                syncCloudBookmarks();
+                            });
+                        } else {
+                            String errorMsg = jsonResponse.getString("message");
+                            mainHandler.post(() ->
+                                    Toast.makeText(MainActivity.this, "添加到云书签失败: " + errorMsg, Toast.LENGTH_SHORT).show());
+                        }
+                    } else {
+                        mainHandler.post(() ->
+                                Toast.makeText(MainActivity.this, "网络请求失败: " + response.code(), Toast.LENGTH_SHORT).show());
+                    }
+                }
+
+            } catch (Exception e) {
+                Log.e("Browser", "添加到云书签失败", e);
+                mainHandler.post(() ->
+                        Toast.makeText(MainActivity.this, "添加到云书签失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+            }
+        });
+    }
+
+    // ========================= 文件存储操作 =========================
+
     private void initData() {
         // 从文件加载历史记录和收藏夹
         loadHistoryFromFile();
         loadFavoritesFromFile();
 
         cloudBookmarks = new ArrayList<>();
-
-        // 异步加载云书签
-        syncCloudBookmarks();
     }
+
+    private void loadHistoryFromFile() {
+        executorService.execute(() -> {
+            try {
+                FileInputStream fis = openFileInput(HISTORY_FILE);
+                BufferedReader reader = new BufferedReader(new InputStreamReader(fis));
+                StringBuilder content = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    content.append(line);
+                }
+                reader.close();
+
+                JSONArray jsonArray = new JSONArray(content.toString());
+                List<HistoryItem> loadedHistory = new ArrayList<>();
+                for (int i = 0; i < jsonArray.length(); i++) {
+                    loadedHistory.add(HistoryItem.fromJson(jsonArray.getJSONObject(i)));
+                }
+
+                mainHandler.post(() -> {
+                    historyList = loadedHistory;
+                    Log.d("Browser", "Loaded " + historyList.size() + " history items");
+                });
+            } catch (Exception e) {
+                mainHandler.post(() -> {
+                    historyList = new ArrayList<>();
+                    Log.d("Browser", "Created new history list");
+                });
+            }
+        });
+    }
+
+    private void saveHistoryToFile() {
+        try {
+            JSONArray jsonArray = new JSONArray();
+            for (HistoryItem item : historyList) {
+                jsonArray.put(item.toJson());
+            }
+
+            FileOutputStream fos = openFileOutput(HISTORY_FILE, Context.MODE_PRIVATE);
+            OutputStreamWriter writer = new OutputStreamWriter(fos);
+            writer.write(jsonArray.toString());
+            writer.close();
+
+            Log.d("Browser", "Saved " + historyList.size() + " history items");
+        } catch (Exception e) {
+            Log.e("Browser", "Failed to save history", e);
+        }
+    }
+
+    private void loadFavoritesFromFile() {
+        executorService.execute(() -> {
+            try {
+                FileInputStream fis = openFileInput(FAVORITES_FILE);
+                BufferedReader reader = new BufferedReader(new InputStreamReader(fis));
+                StringBuilder content = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    content.append(line);
+                }
+                reader.close();
+
+                JSONArray jsonArray = new JSONArray(content.toString());
+                List<Bookmark> loadedFavorites = new ArrayList<>();
+                for (int i = 0; i < jsonArray.length(); i++) {
+                    loadedFavorites.add(Bookmark.fromJson(jsonArray.getJSONObject(i)));
+                }
+
+                mainHandler.post(() -> {
+                    favoritesList = loadedFavorites;
+                    Log.d("Browser", "Loaded " + favoritesList.size() + " favorites");
+                });
+            } catch (Exception e) {
+                mainHandler.post(() -> {
+                    favoritesList = new ArrayList<>();
+                    favoritesList.add(new Bookmark("必应", "https://cn.bing.com"));
+                    favoritesList.add(new Bookmark("百度", "https://www.baidu.com"));
+                    Log.d("Browser", "Created new favorites list with examples");
+                });
+            }
+        });
+    }
+
+    private void saveFavoritesToFile() {
+        try {
+            JSONArray jsonArray = new JSONArray();
+            for (Bookmark bookmark : favoritesList) {
+                jsonArray.put(bookmark.toJson());
+            }
+
+            FileOutputStream fos = openFileOutput(FAVORITES_FILE, Context.MODE_PRIVATE);
+            OutputStreamWriter writer = new OutputStreamWriter(fos);
+            writer.write(jsonArray.toString());
+            writer.close();
+
+            Log.d("Browser", "Saved " + favoritesList.size() + " favorites");
+        } catch (Exception e) {
+            Log.e("Browser", "Failed to save favorites", e);
+        }
+    }
+
+    // ========================= UI 相关代码 =========================
 
     private void setupImmersiveStatusBar() {
         Window window = getWindow();
@@ -424,246 +696,6 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // ========================= 文件存储操作 =========================
-
-    /**
-     * 从文件加载历史记录
-     */
-    private void loadHistoryFromFile() {
-        executorService.execute(() -> {
-            try {
-                FileInputStream fis = openFileInput(HISTORY_FILE);
-                BufferedReader reader = new BufferedReader(new InputStreamReader(fis));
-                StringBuilder content = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    content.append(line);
-                }
-                reader.close();
-
-                JSONArray jsonArray = new JSONArray(content.toString());
-                List<HistoryItem> loadedHistory = new ArrayList<>();
-                for (int i = 0; i < jsonArray.length(); i++) {
-                    loadedHistory.add(HistoryItem.fromJson(jsonArray.getJSONObject(i)));
-                }
-
-                mainHandler.post(() -> {
-                    historyList = loadedHistory;
-                    Log.d("Browser", "Loaded " + historyList.size() + " history items");
-                });
-            } catch (Exception e) {
-                // 文件不存在或其他错误，初始化空列表
-                mainHandler.post(() -> {
-                    historyList = new ArrayList<>();
-                    Log.d("Browser", "Created new history list");
-                });
-            }
-        });
-    }
-
-    /**
-     * 保存历史记录到文件
-     */
-    private void saveHistoryToFile() {
-        try {
-            JSONArray jsonArray = new JSONArray();
-            for (HistoryItem item : historyList) {
-                jsonArray.put(item.toJson());
-            }
-
-            FileOutputStream fos = openFileOutput(HISTORY_FILE, Context.MODE_PRIVATE);
-            OutputStreamWriter writer = new OutputStreamWriter(fos);
-            writer.write(jsonArray.toString());
-            writer.close();
-
-            Log.d("Browser", "Saved " + historyList.size() + " history items");
-        } catch (Exception e) {
-            Log.e("Browser", "Failed to save history", e);
-        }
-    }
-
-    /**
-     * 从文件加载收藏夹
-     */
-    private void loadFavoritesFromFile() {
-        executorService.execute(() -> {
-            try {
-                FileInputStream fis = openFileInput(FAVORITES_FILE);
-                BufferedReader reader = new BufferedReader(new InputStreamReader(fis));
-                StringBuilder content = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    content.append(line);
-                }
-                reader.close();
-
-                JSONArray jsonArray = new JSONArray(content.toString());
-                List<Bookmark> loadedFavorites = new ArrayList<>();
-                for (int i = 0; i < jsonArray.length(); i++) {
-                    loadedFavorites.add(Bookmark.fromJson(jsonArray.getJSONObject(i)));
-                }
-
-                mainHandler.post(() -> {
-                    favoritesList = loadedFavorites;
-                    Log.d("Browser", "Loaded " + favoritesList.size() + " favorites");
-                });
-            } catch (Exception e) {
-                // 文件不存在或其他错误，初始化空列表并添加示例数据
-                mainHandler.post(() -> {
-                    favoritesList = new ArrayList<>();
-                    // 添加一些示例收藏夹
-                    favoritesList.add(new Bookmark("必应", "https://cn.bing.com"));
-                    favoritesList.add(new Bookmark("百度", "https://www.baidu.com"));
-                    Log.d("Browser", "Created new favorites list with examples");
-                });
-            }
-        });
-    }
-
-    /**
-     * 保存收藏夹到文件
-     */
-    private void saveFavoritesToFile() {
-        try {
-            JSONArray jsonArray = new JSONArray();
-            for (Bookmark bookmark : favoritesList) {
-                jsonArray.put(bookmark.toJson());
-            }
-
-            FileOutputStream fos = openFileOutput(FAVORITES_FILE, Context.MODE_PRIVATE);
-            OutputStreamWriter writer = new OutputStreamWriter(fos);
-            writer.write(jsonArray.toString());
-            writer.close();
-
-            Log.d("Browser", "Saved " + favoritesList.size() + " favorites");
-        } catch (Exception e) {
-            Log.e("Browser", "Failed to save favorites", e);
-        }
-    }
-
-    // ========================= 云书签同步 =========================
-
-    /**
-     * 同步云书签
-     */
-    private void syncCloudBookmarks() {
-        executorService.execute(() -> {
-            try {
-                // 从服务器获取书签
-                List<Bookmark> serverBookmarks = fetchBookmarksFromServer();
-
-                // 上传本地更改到服务器（如果有）
-                uploadLocalChangesToServer();
-
-                mainHandler.post(() -> {
-                    cloudBookmarks.clear();
-                    cloudBookmarks.addAll(serverBookmarks);
-                    Toast.makeText(MainActivity.this,
-                            "已同步 " + cloudBookmarks.size() + " 个云书签",
-                            Toast.LENGTH_SHORT).show();
-                    Log.d("Browser", "Synced " + cloudBookmarks.size() + " cloud bookmarks");
-                });
-
-            } catch (Exception e) {
-                mainHandler.post(() -> {
-                    Toast.makeText(MainActivity.this,
-                            "同步失败: " + e.getMessage(),
-                            Toast.LENGTH_SHORT).show();
-                    Log.e("Browser", "Sync failed", e);
-                });
-            }
-        });
-    }
-
-    /**
-     * 从服务器获取书签
-     */
-    private List<Bookmark> fetchBookmarksFromServer() throws IOException, JSONException {
-        // 这里替换为你的实际服务器API
-        String url = SERVER_BASE_URL + "/bookmarks?token=" + SYNC_TOKEN;
-
-        Request request = new Request.Builder()
-                .url(url)
-                .build();
-
-        try (Response response = httpClient.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                throw new IOException("服务器错误: " + response.code());
-            }
-
-            String responseBody = response.body().string();
-            JSONObject jsonResponse = new JSONObject(responseBody);
-
-            if (jsonResponse.getInt("code") != 200) {
-                throw new IOException("API错误: " + jsonResponse.getString("message"));
-            }
-
-            JSONArray bookmarksArray = jsonResponse.getJSONArray("data");
-            List<Bookmark> bookmarks = new ArrayList<>();
-
-            for (int i = 0; i < bookmarksArray.length(); i++) {
-                JSONObject bookmarkJson = bookmarksArray.getJSONObject(i);
-                Bookmark bookmark = new Bookmark(
-                        bookmarkJson.getString("id"),
-                        bookmarkJson.getString("title"),
-                        bookmarkJson.getString("url"),
-                        bookmarkJson.getLong("created_at")
-                );
-                bookmarks.add(bookmark);
-            }
-
-            return bookmarks;
-        }
-    }
-
-    /**
-     * 上传本地更改到服务器
-     */
-    private void uploadLocalChangesToServer() throws IOException, JSONException {
-        // 这里可以添加检测本地更改并上传的逻辑
-        // 例如：新添加的收藏夹、修改的书签等
-
-        // 示例：上传所有收藏夹到服务器
-        JSONArray uploadArray = new JSONArray();
-        for (Bookmark bookmark : favoritesList) {
-            uploadArray.put(bookmark.toJson());
-        }
-
-        // 实际实现中，这里应该发送POST请求到服务器
-        Log.d("Browser", "Would upload " + uploadArray.length() + " items to server");
-    }
-
-    /**
-     * 添加书签到云服务器
-     */
-    private void addBookmarkToServer(Bookmark bookmark) {
-        executorService.execute(() -> {
-            try {
-                // 构建请求体
-                JSONObject requestBody = new JSONObject();
-                requestBody.put("token", SYNC_TOKEN);
-                requestBody.put("title", bookmark.title);
-                requestBody.put("url", bookmark.url);
-
-                // 这里应该发送POST请求到服务器
-                // 示例代码，实际需要实现网络请求
-                Log.d("Browser", "Would add bookmark to server: " + bookmark.title);
-
-                mainHandler.post(() -> {
-                    Toast.makeText(MainActivity.this, "已添加到云书签", Toast.LENGTH_SHORT).show();
-                });
-
-            } catch (Exception e) {
-                mainHandler.post(() -> {
-                    Toast.makeText(MainActivity.this, "添加到云书签失败", Toast.LENGTH_SHORT).show();
-                    Log.e("Browser", "Failed to add bookmark to server", e);
-                });
-            }
-        });
-    }
-
-    // ========================= UI 操作 =========================
-
     private void enterFullscreen() {
         View decorView = getWindow().getDecorView();
         int uiOptions = View.SYSTEM_UI_FLAG_FULLSCREEN
@@ -731,7 +763,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showMenu() {
-        PopupMenu popupMenu = new PopupMenu(this, btnMenu);
+        android.widget.PopupMenu popupMenu = new android.widget.PopupMenu(this, btnMenu);
         popupMenu.getMenuInflater().inflate(R.menu.browser_menu, popupMenu.getMenu());
 
         popupMenu.setOnMenuItemClickListener(item -> {
@@ -754,11 +786,30 @@ public class MainActivity extends AppCompatActivity {
             } else if (id == R.id.menu_add_cloud) {
                 addCurrentToCloudBookmarks();
                 return true;
+            } else if (id == R.id.menu_relogin) {
+                reLoginToServer();
+                return true;
             }
             return false;
         });
 
         popupMenu.show();
+    }
+
+    /**
+     * 重新登录到服务器
+     */
+    private void reLoginToServer() {
+        executorService.execute(() -> {
+            boolean success = loginToServer();
+            if (success) {
+                mainHandler.post(() -> {
+                    Toast.makeText(MainActivity.this, "重新登录成功", Toast.LENGTH_SHORT).show();
+                    // 登录成功后同步书签
+                    syncCloudBookmarks();
+                });
+            }
+        });
     }
 
     private void showHistoryDialog() {
@@ -767,102 +818,31 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        // 创建自定义对话框
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        View dialogView = getLayoutInflater().inflate(R.layout.dialog_history, null);
-        builder.setView(dialogView);
-
-        final AlertDialog dialog = builder.create();
-
-        // 获取视图组件
-        TextView tvHistoryCount = dialogView.findViewById(R.id.tvHistoryCount);
-        EditText etSearch = dialogView.findViewById(R.id.etSearch);
-        ListView listViewHistory = dialogView.findViewById(R.id.listViewHistory);
-        Button btnClearHistory = dialogView.findViewById(R.id.btnClearHistory);
-        Button btnClose = dialogView.findViewById(R.id.btnClose);
-
-        // 设置历史记录数量
-        tvHistoryCount.setText(historyList.size() + "条记录");
-
-        // 创建适配器
-        HistoryAdapter adapter = new HistoryAdapter(this, historyList);
-        listViewHistory.setAdapter(adapter);
-
-        // 设置列表项点击事件
-        listViewHistory.setOnItemClickListener((parent, view, position, id) -> {
-            HistoryItem selectedItem = adapter.getItem(position);
-            loadUrl(selectedItem.url);
-            dialog.dismiss();
-        });
-
-        // 设置长按事件（删除单条记录）
-        listViewHistory.setOnItemLongClickListener((parent, view, position, id) -> {
-            HistoryItem item = adapter.getItem(position);
-            new AlertDialog.Builder(this)
-                    .setTitle("删除记录")
-                    .setMessage("确定要删除这条历史记录吗？\n" + item.title)
-                    .setPositiveButton("删除", (d, which) -> {
-                        historyList.remove(position);
-                        adapter.notifyDataSetChanged();
-                        tvHistoryCount.setText(historyList.size() + "条记录");
-                        saveHistoryToFile();
-                        Toast.makeText(MainActivity.this, "已删除", Toast.LENGTH_SHORT).show();
-
-                        // 如果删除后列表为空，关闭对话框
-                        if (historyList.isEmpty()) {
-                            dialog.dismiss();
-                        }
-                    })
-                    .setNegativeButton("取消", null)
-                    .show();
-            return true;
-        });
-
-        // 搜索功能
-        etSearch.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-                adapter.getFilter().filter(s);
-            }
-
-            @Override
-            public void afterTextChanged(android.text.Editable s) {}
-        });
-
-        // 清空历史按钮
-        btnClearHistory.setOnClickListener(v -> {
-            new AlertDialog.Builder(this)
-                    .setTitle("清空历史记录")
-                    .setMessage("确定要清空所有历史记录吗？此操作不可恢复。")
-                    .setPositiveButton("清空", (d, which) -> {
-                        historyList.clear();
-                        adapter.notifyDataSetChanged();
-                        tvHistoryCount.setText("0条记录");
-                        saveHistoryToFile();
-                        Toast.makeText(MainActivity.this, "历史记录已清空", Toast.LENGTH_SHORT).show();
-                        dialog.dismiss();
-                    })
-                    .setNegativeButton("取消", null)
-                    .show();
-        });
-
-        // 关闭按钮
-        btnClose.setOnClickListener(v -> dialog.dismiss());
-
-        // 显示对话框
-        dialog.show();
-
-        // 设置对话框窗口属性
-        if (dialog.getWindow() != null) {
-            // 设置对话框为全屏
-            dialog.getWindow().setLayout(
-                    WindowManager.LayoutParams.MATCH_PARENT,
-                    WindowManager.LayoutParams.MATCH_PARENT
-            );
+        // 这里使用你之前实现的历史记录对话框
+        // 为了简洁，这里使用简单的AlertDialog
+        List<String> reversedHistory = new ArrayList<>();
+        for (HistoryItem item : historyList) {
+            reversedHistory.add(0, item.title + "\n" + item.url);
         }
+
+        final String[] historyArray = reversedHistory.toArray(new String[0]);
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("浏览历史 (" + historyList.size() + "条)");
+
+        builder.setItems(historyArray, (dialog, which) -> {
+            String selectedUrl = historyList.get(historyList.size() - 1 - which).url;
+            loadUrl(selectedUrl);
+        });
+
+        builder.setPositiveButton("清空历史", (dialog, which) -> {
+            historyList.clear();
+            saveHistoryToFile();
+            Toast.makeText(MainActivity.this, "历史记录已清空", Toast.LENGTH_SHORT).show();
+        });
+
+        builder.setNegativeButton("取消", null);
+        builder.show();
     }
 
     private void showCloudBookmarksDialog() {
@@ -943,22 +923,6 @@ public class MainActivity extends AppCompatActivity {
         Toast.makeText(this, "已添加到收藏夹", Toast.LENGTH_SHORT).show();
     }
 
-    private void addCurrentToCloudBookmarks() {
-        String currentUrl = webView.getUrl();
-        String currentTitle = webView.getTitle();
-
-        if (currentUrl == null || currentUrl.isEmpty()) {
-            Toast.makeText(this, "当前没有加载网页", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        String title = currentTitle != null ? currentTitle : "未命名网页";
-        Bookmark bookmark = new Bookmark(title, currentUrl);
-
-        // 添加到云书签
-        addBookmarkToServer(bookmark);
-    }
-
     private void showManageFavoritesDialog() {
         if (favoritesList.isEmpty()) {
             Toast.makeText(this, "收藏夹为空", Toast.LENGTH_SHORT).show();
@@ -974,7 +938,6 @@ public class MainActivity extends AppCompatActivity {
         builder.setTitle("管理收藏夹");
 
         builder.setItems(favoriteTitles, (dialog, which) -> {
-            // 这里可以添加编辑或删除收藏的逻辑
             String selectedUrl = favoritesList.get(which).url;
             loadUrl(selectedUrl);
         });
@@ -1015,16 +978,6 @@ public class MainActivity extends AppCompatActivity {
         // 根据状态改变按钮透明度
         btnBack.setAlpha(webView.canGoBack() ? 1.0f : 0.5f);
         btnForward.setAlpha(webView.canGoForward() ? 1.0f : 0.5f);
-    }
-
-    // 格式化时间的方法
-    private String formatTime(long timestamp) {
-        try {
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault());
-            return sdf.format(new Date(timestamp));
-        } catch (Exception e) {
-            return "未知时间";
-        }
     }
 
     // 处理系统UI可见性变化

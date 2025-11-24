@@ -29,4 +29,9 @@
         android:id="@+id/menu_sync"
         android:title="同步云书签"
         android:icon="@android:drawable/ic_popup_sync" />
+
+    <item
+        android:id="@+id/menu_relogin"
+        android:title="重新登录"
+        android:icon="@android:drawable/ic_lock_lock" />
 </menu>
